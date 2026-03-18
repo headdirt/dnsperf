@@ -1,0 +1,19 @@
+[package]
+name = "dnsperf"
+version = "0.1.0"
+edition = "2021"
+description = "DNS Resolver Performance Tester"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/headdirt/dnsperf"
+authors = ["headdirt"]
+
+[[bin]]
+name = "dnsperf"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+hickory-resolver = "0.25"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+colored = "2"
+anyhow = "1"
