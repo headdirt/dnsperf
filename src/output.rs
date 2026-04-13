@@ -8,6 +8,23 @@ fn fmt_stat(val: Option<f64>, precision: usize) -> String {
     }
 }
 
+fn truncate_display(display: String) -> String {
+    let chars: Vec<char> = display.chars().collect();
+    if chars.len() > 27 {
+        format!("{}...", chars[..24].iter().collect::<String>())
+    } else {
+        display
+    }
+}
+
+fn csv_field(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
 pub fn render_table(stats: &[ResolverStats], domain_count: usize, runs: u32, timeout_secs: u64) {
     let fastest = stats.iter().find(|s| s.avg.is_some()).map(|s| &s.name);
     let slowest = stats
@@ -29,11 +46,7 @@ pub fn render_table(stats: &[ResolverStats], domain_count: usize, runs: u32, tim
     );
     println!(
         "{:<28} {:>10} {:>10} {:>10} {:>12}",
-        "----------------------------",
-        "----------",
-        "----------",
-        "----------",
-        "------------"
+        "----------------------------", "----------", "----------", "----------", "------------"
     );
 
     for s in stats {
@@ -42,11 +55,7 @@ pub fn render_table(stats: &[ResolverStats], domain_count: usize, runs: u32, tim
         } else {
             format!("{} ({})", s.name, s.ip)
         };
-        let display = if display.len() > 27 {
-            format!("{}...", &display[..24])
-        } else {
-            display
-        };
+        let display = truncate_display(display);
 
         let avg_str = fmt_stat(s.avg, 2);
         let min_str = fmt_stat(s.min, 3);
@@ -93,7 +102,36 @@ pub fn render_csv(stats: &[ResolverStats]) {
         let max_str = fmt_stat(s.max, 3);
         println!(
             "{},{},{},{},{},{}/{}",
-            s.name, s.ip, avg_str, min_str, max_str, s.successes, s.total
+            csv_field(&s.name),
+            csv_field(&s.ip),
+            avg_str,
+            min_str,
+            max_str,
+            s.successes,
+            s.total
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{csv_field, truncate_display};
+
+    #[test]
+    fn csv_field_quotes_commas_and_quotes() {
+        assert_eq!(csv_field("Home, \"Lab\""), "\"Home, \"\"Lab\"\"\"");
+    }
+
+    #[test]
+    fn csv_field_leaves_simple_values_unquoted() {
+        assert_eq!(csv_field("Cloudflare"), "Cloudflare");
+    }
+
+    #[test]
+    fn truncate_display_is_utf8_safe() {
+        let display = "測試".repeat(20);
+        let truncated = truncate_display(display);
+        assert!(truncated.ends_with("..."));
+        assert_eq!(truncated.trim_end_matches("...").chars().count(), 24);
     }
 }

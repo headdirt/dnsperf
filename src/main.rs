@@ -13,7 +13,10 @@ async fn main() -> Result<()> {
     let cli = cli::Cli::parse_and_validate()?;
 
     // Setup colors
-    if cli.no_color || std::env::var("NO_COLOR").is_ok() || !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+    if cli.no_color
+        || std::env::var("NO_COLOR").is_ok()
+        || !std::io::IsTerminal::is_terminal(&std::io::stdout())
+    {
         colored::control::set_override(false);
     }
 
@@ -47,7 +50,7 @@ async fn main() -> Result<()> {
 
     // Custom resolvers
     for entry in &cli.resolvers {
-        let (name, ip) = resolver::parse_custom(entry);
+        let (name, ip) = resolver::parse_custom(entry)?;
         resolvers.push(resolver::Resolver { name, ip });
     }
 
@@ -91,8 +94,10 @@ async fn main() -> Result<()> {
     }
 
     // Compute stats and sort
-    let mut all_stats: Vec<stats::ResolverStats> =
-        results.iter().map(stats::ResolverStats::from_result).collect();
+    let mut all_stats: Vec<stats::ResolverStats> = results
+        .iter()
+        .map(stats::ResolverStats::from_result)
+        .collect();
     stats::sort_stats(&mut all_stats);
 
     // Render output

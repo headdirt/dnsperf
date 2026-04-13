@@ -3,7 +3,7 @@ use hickory_resolver::config::{NameServerConfig, ResolverConfig, ResolverOpts};
 use hickory_resolver::name_server::TokioConnectionProvider;
 use hickory_resolver::proto::xfer::Protocol;
 use hickory_resolver::TokioResolver;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
@@ -49,7 +49,6 @@ pub async fn test_resolver(
             eprint!("\r  {:<22}  {:<20}", name, domain);
         }
         for _run in 1..=runs {
-
             let start = Instant::now();
             let result = timeout(timeout_dur, resolver.lookup_ip(domain.as_str())).await;
             let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -74,13 +73,14 @@ pub async fn test_resolver(
 }
 
 fn create_resolver(ip: &str, timeout_secs: u64) -> Result<TokioResolver> {
-    let addr: SocketAddr = format!("{}:53", ip).parse()?;
+    let addr = SocketAddr::new(ip.parse::<IpAddr>()?, 53);
     let ns = NameServerConfig::new(addr, Protocol::Udp);
     let mut config = ResolverConfig::new();
     config.add_name_server(ns);
     let mut opts = ResolverOpts::default();
     opts.timeout = Duration::from_secs(timeout_secs);
     opts.attempts = 1;
+    opts.cache_size = 0;
     let resolver = TokioResolver::builder_with_config(config, TokioConnectionProvider::default())
         .with_options(opts)
         .build();
@@ -91,5 +91,23 @@ fn create_system_resolver(timeout_secs: u64) -> Result<TokioResolver> {
     let mut builder = TokioResolver::builder_tokio()?;
     builder.options_mut().timeout = Duration::from_secs(timeout_secs);
     builder.options_mut().attempts = 1;
+    builder.options_mut().cache_size = 0;
     Ok(builder.build())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::create_resolver;
+
+    #[test]
+    fn create_resolver_accepts_ipv6() {
+        let resolver = create_resolver("2606:4700:4700::1111", 2).unwrap();
+        assert_eq!(resolver.options().cache_size, 0);
+    }
+
+    #[test]
+    fn create_resolver_disables_cache() {
+        let resolver = create_resolver("1.1.1.1", 2).unwrap();
+        assert_eq!(resolver.options().cache_size, 0);
+    }
 }

@@ -52,12 +52,7 @@ impl Cli {
             bail!("--timeout must be a positive integer");
         }
         for r in &cli.resolvers {
-            if !r.contains(':') {
-                bail!(
-                    "Invalid resolver format '{}'. Expected NAME:IP (e.g., MyDNS:10.0.0.1)",
-                    r
-                );
-            }
+            crate::resolver::parse_custom(r)?;
         }
         if let Some(ref path) = cli.domains {
             if !std::path::Path::new(path).is_file() {

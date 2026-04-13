@@ -17,10 +17,7 @@ fn detect_platform() -> Option<String> {
         }
         None
     } else if cfg!(target_os = "linux") {
-        let output = Command::new("resolvectl")
-            .arg("status")
-            .output()
-            .ok()?;
+        let output = Command::new("resolvectl").arg("status").output().ok()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             let trimmed = line.trim();
