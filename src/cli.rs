@@ -5,12 +5,16 @@ use clap::Parser;
 #[command(
     name = "dnsperf",
     version,
-    about = "DNS Resolver Performance Tester\n\nTests the response time of various DNS resolvers by querying a set of\npopular domains and reporting average, minimum, and maximum latency.\n\nBy default, tests your ISP's DNS plus 9 well-known public resolvers.\nAdditional resolvers can be specified as positional arguments in the\nformat NAME:IP (e.g., \"MyDNS:10.0.0.1\")."
+    about = "DNS Resolver Performance Tester\n\nTests the response time of various DNS resolvers by querying a set of\npopular domains and reporting average, median, p95, min, max, and\nsuccess rate.\n\nBy default, tests your detected ISP DNS server plus 9 well-known public\nresolvers. Additional resolvers can be specified as positional arguments\nin the format NAME:IP (e.g., \"MyDNS:10.0.0.1\")."
 )]
 pub struct Cli {
     /// Queries per domain per resolver
     #[arg(short, long, default_value_t = 3)]
     pub runs: u32,
+
+    /// Warmup queries per domain per resolver, excluded from results
+    #[arg(long, default_value_t = 1)]
+    pub warmup: u32,
 
     /// File with one domain per line (overrides built-in list)
     #[arg(short, long)]
@@ -28,7 +32,7 @@ pub struct Cli {
     #[arg(long)]
     pub no_color: bool,
 
-    /// Skip testing the ISP's default resolver
+    /// Skip testing the detected ISP DNS server
     #[arg(long)]
     pub no_isp: bool,
 

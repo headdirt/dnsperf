@@ -4,6 +4,7 @@ use hickory_resolver::name_server::TokioConnectionProvider;
 use hickory_resolver::proto::xfer::Protocol;
 use hickory_resolver::TokioResolver;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
@@ -17,17 +18,12 @@ pub struct ResolverResult {
 pub async fn test_resolver(
     name: String,
     ip: String,
-    domains: Vec<String>,
+    domains: Arc<Vec<String>>,
     runs: u32,
+    warmup: u32,
     timeout_secs: u64,
-    quiet: bool,
 ) -> ResolverResult {
-    let resolver = if ip == "default" {
-        create_system_resolver(timeout_secs)
-    } else {
-        create_resolver(&ip, timeout_secs)
-    };
-
+    let resolver = create_resolver(&ip, timeout_secs);
     let total = domains.len() as u32 * runs;
 
     let resolver = match resolver {
@@ -41,26 +37,21 @@ pub async fn test_resolver(
             };
         }
     };
-    let mut latencies = Vec::new();
+    let mut latencies = Vec::with_capacity(total as usize);
     let timeout_dur = Duration::from_secs(timeout_secs);
 
-    for domain in &domains {
-        if !quiet {
-            eprint!("\r  {:<22}  {:<20}", name, domain);
+    for _ in 0..warmup {
+        for domain in domains.iter() {
+            let _ = run_lookup(&resolver, domain, timeout_dur).await;
         }
-        for _run in 1..=runs {
-            let start = Instant::now();
-            let result = timeout(timeout_dur, resolver.lookup_ip(domain.as_str())).await;
-            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    }
 
-            match result {
-                Ok(Ok(_)) => {
-                    latencies.push(elapsed_ms);
-                }
-                _ => {
-                    // timeout or lookup error — treated as failure
-                }
-            }
+    let mut queries = query_plan(domains.len(), runs);
+    shuffle_queries(&mut queries, seed_for(&name, &ip));
+
+    for domain_idx in queries {
+        if let Some(elapsed_ms) = run_lookup(&resolver, &domains[domain_idx], timeout_dur).await {
+            latencies.push(elapsed_ms);
         }
     }
 
@@ -70,6 +61,47 @@ pub async fn test_resolver(
         latencies,
         total_queries: total,
     }
+}
+
+async fn run_lookup(resolver: &TokioResolver, domain: &str, timeout_dur: Duration) -> Option<f64> {
+    let start = Instant::now();
+    let result = timeout(timeout_dur, resolver.lookup_ip(domain)).await;
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    match result {
+        Ok(Ok(_)) => Some(elapsed_ms),
+        _ => None,
+    }
+}
+
+fn query_plan(domain_count: usize, runs: u32) -> Vec<usize> {
+    (0..domain_count)
+        .flat_map(|d| std::iter::repeat_n(d, runs as usize))
+        .collect()
+}
+
+fn shuffle_queries(queries: &mut [usize], mut seed: u64) {
+    if queries.len() < 2 {
+        return;
+    }
+
+    for i in (1..queries.len()).rev() {
+        seed = next_seed(seed);
+        let j = (seed as usize) % (i + 1);
+        queries.swap(i, j);
+    }
+}
+
+fn seed_for(name: &str, ip: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    name.hash(&mut hasher);
+    ip.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn next_seed(seed: u64) -> u64 {
+    seed.wrapping_mul(6364136223846793005).wrapping_add(1)
 }
 
 fn create_resolver(ip: &str, timeout_secs: u64) -> Result<TokioResolver> {
@@ -87,17 +119,9 @@ fn create_resolver(ip: &str, timeout_secs: u64) -> Result<TokioResolver> {
     Ok(resolver)
 }
 
-fn create_system_resolver(timeout_secs: u64) -> Result<TokioResolver> {
-    let mut builder = TokioResolver::builder_tokio()?;
-    builder.options_mut().timeout = Duration::from_secs(timeout_secs);
-    builder.options_mut().attempts = 1;
-    builder.options_mut().cache_size = 0;
-    Ok(builder.build())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::create_resolver;
+    use super::{create_resolver, query_plan, seed_for, shuffle_queries};
 
     #[test]
     fn create_resolver_accepts_ipv6() {
@@ -109,5 +133,23 @@ mod tests {
     fn create_resolver_disables_cache() {
         let resolver = create_resolver("1.1.1.1", 2).unwrap();
         assert_eq!(resolver.options().cache_size, 0);
+    }
+
+    #[test]
+    fn query_plan_repeats_each_domain_runs_times() {
+        assert_eq!(query_plan(2, 3), vec![0, 0, 0, 1, 1, 1]);
+    }
+
+    #[test]
+    fn shuffle_queries_preserves_workload() {
+        let mut queries = query_plan(4, 3);
+        let mut original = queries.clone();
+
+        shuffle_queries(&mut queries, seed_for("Cloudflare", "1.1.1.1"));
+
+        assert_ne!(queries, original);
+        queries.sort();
+        original.sort();
+        assert_eq!(queries, original);
     }
 }

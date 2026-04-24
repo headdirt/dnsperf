@@ -1,6 +1,6 @@
 [package]
 name = "dnsperf"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "DNS Resolver Performance Tester"
 license = "GPL-3.0-or-later"

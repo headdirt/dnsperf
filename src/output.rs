@@ -1,6 +1,12 @@
 use crate::stats::ResolverStats;
 use colored::Colorize;
 
+macro_rules! row_fmt {
+    () => {
+        "{:<28} {:>9} {:>9} {:>9} {:>9} {:>8} {:>8} {:>12}"
+    };
+}
+
 fn fmt_stat(val: Option<f64>, precision: usize) -> String {
     match val {
         Some(v) => format!("{:.prec$}", v, prec = precision),
@@ -25,46 +31,60 @@ fn csv_field(value: &str) -> String {
     }
 }
 
-pub fn render_table(stats: &[ResolverStats], domain_count: usize, runs: u32, timeout_secs: u64) {
-    let fastest = stats.iter().find(|s| s.avg.is_some()).map(|s| &s.name);
+pub fn render_table(
+    stats: &[ResolverStats],
+    domain_count: usize,
+    runs: u32,
+    warmup: u32,
+    timeout_secs: u64,
+) {
+    let fastest = stats.iter().find(|s| s.p95.is_some()).map(|s| &s.name);
     let slowest = stats
         .iter()
         .rev()
-        .find(|s| s.avg.is_some())
+        .find(|s| s.p95.is_some())
         .map(|s| &s.name);
-    // Don't color if fastest == slowest (only one resolver with results)
     let slowest = if slowest == fastest { None } else { slowest };
 
     println!();
     println!(
-        "{:<28} {:>10} {:>10} {:>10} {:>12}",
+        row_fmt!(),
         "Resolver".bold(),
         "Avg (ms)".bold(),
+        "Med (ms)".bold(),
+        "P95 (ms)".bold(),
         "Min (ms)".bold(),
         "Max (ms)".bold(),
+        "Fail %".bold(),
         "Successful".bold(),
     );
     println!(
-        "{:<28} {:>10} {:>10} {:>10} {:>12}",
-        "----------------------------", "----------", "----------", "----------", "------------"
+        row_fmt!(),
+        "----------------------------",
+        "---------",
+        "---------",
+        "---------",
+        "---------",
+        "--------",
+        "--------",
+        "------------"
     );
 
     for s in stats {
-        let display = if s.ip == "default" {
-            s.name.clone()
-        } else {
-            format!("{} ({})", s.name, s.ip)
-        };
+        let display = format!("{} ({})", s.name, s.ip);
         let display = truncate_display(display);
 
         let avg_str = fmt_stat(s.avg, 2);
+        let median_str = fmt_stat(s.median, 2);
+        let p95_str = fmt_stat(s.p95, 2);
         let min_str = fmt_stat(s.min, 3);
         let max_str = fmt_stat(s.max, 3);
+        let failure_str = format!("{:.1}", s.failure_rate() * 100.0);
         let ratio = format!("{}/{}", s.successes, s.total);
 
         let line = format!(
-            "{:<28} {:>10} {:>10} {:>10} {:>12}",
-            display, avg_str, min_str, max_str, ratio
+            row_fmt!(),
+            display, avg_str, median_str, p95_str, min_str, max_str, failure_str, ratio
         );
 
         if s.avg.is_none() {
@@ -92,23 +112,40 @@ pub fn render_table(stats: &[ResolverStats], domain_count: usize, runs: u32, tim
         "{}",
         format!("Timeout: {}s per query", timeout_secs).dimmed()
     );
+    if warmup > 0 {
+        println!(
+            "{}",
+            format!(
+                "Warmup: {} domains x {} runs = {} queries excluded per resolver",
+                domain_count,
+                warmup,
+                domain_count * warmup as usize
+            )
+            .dimmed()
+        );
+    }
 }
 
 pub fn render_csv(stats: &[ResolverStats]) {
-    println!("resolver,ip,avg_ms,min_ms,max_ms,successful_queries");
+    println!("resolver,ip,avg_ms,median_ms,p95_ms,min_ms,max_ms,successful_queries,total_queries,failure_rate");
     for s in stats {
         let avg_str = fmt_stat(s.avg, 2);
+        let median_str = fmt_stat(s.median, 2);
+        let p95_str = fmt_stat(s.p95, 2);
         let min_str = fmt_stat(s.min, 3);
         let max_str = fmt_stat(s.max, 3);
         println!(
-            "{},{},{},{},{},{}/{}",
+            "{},{},{},{},{},{},{},{},{},{:.4}",
             csv_field(&s.name),
             csv_field(&s.ip),
             avg_str,
+            median_str,
+            p95_str,
             min_str,
             max_str,
             s.successes,
-            s.total
+            s.total,
+            s.failure_rate()
         );
     }
 }
